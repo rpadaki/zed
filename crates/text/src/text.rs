@@ -20,7 +20,6 @@ use operation_queue::OperationQueue;
 pub use patch::Patch;
 use postage::{oneshot, prelude::*};
 
-use regex::Regex;
 pub use rope::*;
 pub use selection::*;
 use std::{
@@ -32,7 +31,7 @@ use std::{
     num::NonZeroU64,
     ops::{self, Deref, Range, Sub},
     str,
-    sync::{Arc, LazyLock},
+    sync::Arc,
     time::{Duration, Instant},
 };
 pub use subscription::*;
@@ -42,10 +41,6 @@ use undo_map::UndoMap;
 
 #[cfg(any(test, feature = "test-support"))]
 use util::RandomCharIter;
-
-static LINE_SEPARATORS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\r\n|\r|\u{2028}|\u{2029}").expect("Failed to create LINE_SEPARATORS_REGEX")
-});
 
 pub type TransactionId = clock::Lamport;
 
@@ -3108,22 +3103,22 @@ impl LineEnding {
     }
 
     pub fn normalize(text: &mut String) {
-        if let Cow::Owned(replaced) = LINE_SEPARATORS_REGEX.replace_all(text, "\n") {
-            *text = replaced;
+        if text.contains("\r\n") {
+            *text = text.replace("\r\n", "\n");
         }
     }
 
     pub fn normalize_arc(text: Arc<str>) -> Arc<str> {
-        if let Cow::Owned(replaced) = LINE_SEPARATORS_REGEX.replace_all(&text, "\n") {
-            replaced.into()
+        if text.contains("\r\n") {
+            text.replace("\r\n", "\n").into()
         } else {
             text
         }
     }
 
     pub fn normalize_cow(text: Cow<str>) -> Cow<str> {
-        if let Cow::Owned(replaced) = LINE_SEPARATORS_REGEX.replace_all(&text, "\n") {
-            replaced.into()
+        if text.contains("\r\n") {
+            text.replace("\r\n", "\n").into()
         } else {
             text
         }

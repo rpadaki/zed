@@ -36,7 +36,7 @@ use collections::HashMap;
 // https://github.com/bits/UTF-8-Unicode-Test-Documents/blob/master/UTF-8_sequence_separated/utf8_sequence_0-0x10ffff_assigned_including-unprintable-asis.txt
 pub fn is_invisible(c: char) -> bool {
     if c <= '\u{1f}' {
-        c != '\t' && c != '\n' && c != '\r'
+        c != '\t' && c != '\n'
     } else if c >= '\u{7f}' {
         c <= '\u{9f}' || c.is_whitespace() || contains(c, &FORMAT) || contains(c, &OTHER)
     } else {
