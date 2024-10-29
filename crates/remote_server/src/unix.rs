@@ -1,13 +1,13 @@
 use crate::headless_project::HeadlessAppState;
 use crate::HeadlessProject;
 use anyhow::{anyhow, Context, Result};
-use client::ProxySettings;
+use client::{ClientSettings, ProxySettings};
 use fs::{Fs, RealFs};
 use futures::channel::mpsc;
 use futures::{select, select_biased, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt, SinkExt};
 use git::GitHostingProviderRegistry;
 use gpui::{AppContext, Context as _, ModelContext, UpdateGlobal as _};
-use http_client::{read_proxy_from_env, Uri};
+use http_client::{read_proxy_from_env, HttpClient, HttpClientWithUrl, Uri};
 use language::LanguageRegistry;
 use node_runtime::{NodeBinaryOptions, NodeRuntime};
 use paths::logs_dir;
@@ -347,7 +347,7 @@ pub fn execute_run(
 
             let proxy_url = read_proxy_settings(cx);
 
-            let http_client = Arc::new(
+            let http_client: Arc<dyn HttpClient> = Arc::new(
                 ReqwestClient::proxy_and_user_agent(
                     proxy_url,
                     &format!(
@@ -365,6 +365,22 @@ pub fn execute_run(
             let mut languages = LanguageRegistry::new(cx.background_executor().clone());
             languages.set_language_server_download_dir(paths::languages_dir().clone());
             let languages = Arc::new(languages);
+
+            let ext_http_client = HttpClientWithUrl::new_uri(
+                http_client.clone(),
+                &ClientSettings::get_global(cx).server_url,
+                http_client.proxy().cloned(),
+            );
+
+            extension::init(
+                fs.clone(),
+                Arc::new(ext_http_client),
+                None,
+                node_runtime.clone(),
+                languages.clone(),
+                None,
+                cx,
+            );
 
             HeadlessProject::new(
                 HeadlessAppState {

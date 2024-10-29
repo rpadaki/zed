@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Result};
+use client::ClientSettings;
+use extension::ExtensionStore;
 use fs::Fs;
 use gpui::{AppContext, AsyncAppContext, Context as _, Model, ModelContext, PromptLevel};
-use http_client::HttpClient;
+use http_client::{HttpClient, HttpClientWithUrl};
 use language::{proto::serialize_operation, Buffer, BufferEvent, LanguageRegistry};
 use node_runtime::NodeRuntime;
 use project::{
@@ -18,9 +20,10 @@ use rpc::{
     AnyProtoClient, TypedEnvelope,
 };
 
-use settings::initial_server_settings_content;
+use settings::{initial_server_settings_content, Settings};
 use smol::stream::StreamExt;
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{atomic::AtomicUsize, Arc},
 };
@@ -270,6 +273,48 @@ impl HeadlessProject {
             }
             _ => {}
         }
+    }
+    pub async fn handle_install_extensions(
+        this: Model<Self>,
+        message: TypedEnvelope<proto::InstallExtensions>,
+        mut cx: AsyncAppContext,
+    ) -> Result<proto::Ack> {
+        cx.update(|cx| {
+            ExtensionStore::global(cx).update(cx, |store, cx| {
+                let mut to_install: HashMap<Arc<str>, Arc<str>> = message
+                    .payload
+                    .extensions
+                    .iter()
+                    .map(|extension| {
+                        (
+                            extension.id.as_str().into(),
+                            extension.version.as_str().into(),
+                        )
+                    })
+                    .collect();
+                let mut to_remove = Vec::new();
+                let mut to_upgrade = Vec::new();
+                for (id, manifest) in store.installed_extensions() {
+                    let Some(expected_version) = to_install.remove(id) else {
+                        to_remove.push(id.clone());
+                        continue;
+                    };
+                    if manifest.manifest.version != expected_version {
+                        to_upgrade.push((id.clone(), expected_version));
+                    }
+                }
+                for id in to_remove {
+                    store.uninstall_extension(id, cx);
+                }
+                for (id, version) in to_upgrade.into_iter() {
+                    store.upgrade_extension(id, version, cx);
+                }
+                for (id, version) in to_install.into_iter() {
+                    store.install_extension(id, version, cx);
+                }
+            })
+        })?;
+        Ok(proto::Ack {})
     }
 
     pub async fn handle_add_worktree(

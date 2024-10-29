@@ -17,7 +17,7 @@ use anyhow::{anyhow, bail, Context as _, Result};
 use assistant_slash_command::SlashCommandRegistry;
 use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
-use client::{telemetry::Telemetry, Client, ExtensionMetadata, GetExtensionsResponse};
+use client::{telemetry::Telemetry, ExtensionMetadata, GetExtensionsResponse};
 use collections::{btree_map, BTreeMap, HashSet};
 use extension_builder::{CompileExtensionOptions, ExtensionBuilder};
 use fs::{Fs, RemoveOptions};
@@ -114,7 +114,7 @@ pub struct ExtensionStore {
     outstanding_operations: BTreeMap<Arc<str>, ExtensionOperation>,
     index_path: PathBuf,
     language_registry: Arc<LanguageRegistry>,
-    theme_registry: Arc<ThemeRegistry>,
+    theme_registry: Option<Arc<ThemeRegistry>>,
     slash_command_registry: Arc<SlashCommandRegistry>,
     indexed_docs_registry: Arc<IndexedDocsRegistry>,
     snippet_registry: Arc<SnippetRegistry>,
@@ -176,10 +176,11 @@ actions!(zed, [ReloadExtensions]);
 
 pub fn init(
     fs: Arc<dyn Fs>,
-    client: Arc<Client>,
+    http_client: Arc<HttpClientWithUrl>,
+    telemetry: Option<Arc<Telemetry>>,
     node_runtime: NodeRuntime,
     language_registry: Arc<LanguageRegistry>,
-    theme_registry: Arc<ThemeRegistry>,
+    theme_registry: Option<Arc<ThemeRegistry>>,
     cx: &mut AppContext,
 ) {
     ExtensionSettings::register(cx);
@@ -189,9 +190,9 @@ pub fn init(
             paths::extensions_dir().clone(),
             None,
             fs,
-            client.http_client().clone(),
-            client.http_client().clone(),
-            Some(client.telemetry().clone()),
+            http_client.clone(),
+            http_client,
+            telemetry,
             node_runtime,
             language_registry,
             theme_registry,
@@ -230,7 +231,7 @@ impl ExtensionStore {
         telemetry: Option<Arc<Telemetry>>,
         node_runtime: NodeRuntime,
         language_registry: Arc<LanguageRegistry>,
-        theme_registry: Arc<ThemeRegistry>,
+        theme_registry: Option<Arc<ThemeRegistry>>,
         slash_command_registry: Arc<SlashCommandRegistry>,
         indexed_docs_registry: Arc<IndexedDocsRegistry>,
         snippet_registry: Arc<SnippetRegistry>,
@@ -1049,7 +1050,9 @@ impl ExtensionStore {
 
         self.wasm_extensions
             .retain(|(extension, _)| !extensions_to_unload.contains(&extension.id));
-        self.theme_registry.remove_user_themes(&themes_to_remove);
+        if let Some(theme_registry) = &self.theme_registry {
+            theme_registry.remove_user_themes(&themes_to_remove);
+        }
         self.language_registry
             .remove_languages(&languages_to_remove, &grammars_to_remove);
 
@@ -1140,11 +1143,13 @@ impl ExtensionStore {
                 .spawn({
                     let fs = fs.clone();
                     async move {
-                        for theme_path in &themes_to_add {
-                            theme_registry
-                                .load_user_theme(theme_path, fs.clone())
-                                .await
-                                .log_err();
+                        if let Some(theme_registry) = theme_registry {
+                            for theme_path in &themes_to_add {
+                                theme_registry
+                                    .load_user_theme(theme_path, fs.clone())
+                                    .await
+                                    .log_err();
+                            }
                         }
 
                         for snippets_path in &snippets_to_add {

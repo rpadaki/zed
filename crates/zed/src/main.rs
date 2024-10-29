@@ -402,10 +402,11 @@ fn main() {
         );
         extension::init(
             app_state.fs.clone(),
-            app_state.client.clone(),
+            app_state.client.http_client().clone(),
+            Some(app_state.client.telemetry().clone()),
             app_state.node_runtime.clone(),
             app_state.languages.clone(),
-            ThemeRegistry::global(cx),
+            Some(ThemeRegistry::global(cx)),
             cx,
         );
         recent_projects::init(cx);
